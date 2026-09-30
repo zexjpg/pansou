@@ -40,7 +40,8 @@ type Config struct {
 	InsecureSkipTLSVerify bool
 	// 异步插件相关配置
 	AsyncPluginEnabled        bool          // 是否启用异步插件
-	EnabledPlugins            []string      // 启用的具体插件列表（空表示启用所有）
+	EnabledPlugins            []string      // 启用的具体插件列表（nil=未设置=0个；[]=显式空；显式名字=只启用这些）
+	EnableAllPlugins          bool          // ENABLED_PLUGINS=all 时为真：启用全局注册表中的全部插件（源码新增插件后无需改脚本）
 	AsyncResponseTimeout      int           // 响应超时时间（秒）
 	AsyncResponseTimeoutDur   time.Duration // 响应超时时间（Duration）
 	AsyncMaxBackgroundWorkers int           // 最大后台工作者数量
@@ -89,6 +90,10 @@ type Config struct {
 // 全局配置实例
 var AppConfig *Config
 
+// enableAllPlugins 是 getEnabledPlugins 解析 ENABLED_PLUGINS=all 时设置的副作用标志，
+// 在 config.Init 构造 AppConfig 时回填到 AppConfig.EnableAllPlugins。
+var enableAllPlugins bool
+
 // 初始化配置
 func Init() {
 	proxyURL := getProxyURL()
@@ -120,6 +125,7 @@ func Init() {
 		// 异步插件相关配置
 		AsyncPluginEnabled:        getAsyncPluginEnabled(),
 		EnabledPlugins:            getEnabledPlugins(),
+		EnableAllPlugins:          enableAllPlugins,
 		AsyncResponseTimeout:      asyncResponseTimeoutSeconds,
 		AsyncResponseTimeoutDur:   time.Duration(asyncResponseTimeoutSeconds) * time.Second,
 		AsyncMaxBackgroundWorkers: getAsyncMaxBackgroundWorkers(),
@@ -157,11 +163,14 @@ func Init() {
 	applyGCSettings()
 }
 
-// 从环境变量获取默认频道列表，如果未设置则使用默认值
+// 从环境变量获取默认频道列表。
+//
+// 发布版行为：CHANNELS 未设置时默认启用全部频道（default_channels.txt，111 个），
+// 做到"开箱即全量"。若只需上游旧的单频道默认，显式设置 CHANNELS=tgsearchers7。
 func getDefaultChannels() []string {
 	channelsEnv := os.Getenv("CHANNELS")
 	if channelsEnv == "" {
-		return []string{"tgsearchers7"}
+		return DefaultAllChannels
 	}
 	return strings.Split(channelsEnv, ",")
 }
@@ -566,18 +575,34 @@ func getAsyncPluginEnabled() bool {
 }
 
 // 从环境变量获取启用的插件列表
-// 返回nil表示未设置环境变量（不启用任何插件）
-// 返回[]string{}表示设置为空（不启用任何插件）
-// 返回具体列表表示启用指定插件
+//
+// 发布版默认行为（修复"空值=0 插件"的陷阱）：
+//   - 未设置 ENABLED_PLUGINS        -> 启用全局注册表中的全部插件（开箱即全量）
+//   - ENABLED_PLUGINS=all           -> 同上，显式全开
+//   - ENABLED_PLUGINS=none 或 ""    -> 显式 0 插件（退出通道，便于只跑 TG 频道）
+//   - ENABLED_PLUGINS=a,b,c         -> 只启用指定插件
+//
+// 源码新增插件后在 main.go 里 import 即自动注册，无需改动任何启动脚本。
 func getEnabledPlugins() []string {
 	plugins, exists := os.LookupEnv("ENABLED_PLUGINS")
 	if !exists {
-		// 未设置环境变量时返回nil，表示不启用任何插件
+		// 未设置环境变量：发布版默认启用全部插件
+		enableAllPlugins = true
 		return nil
 	}
 
 	if plugins == "" {
-		// 设置为空字符串，也表示不启用任何插件
+		// 显式空字符串：0 插件
+		return []string{}
+	}
+
+	lower := strings.TrimSpace(strings.ToLower(plugins))
+	if lower == "all" {
+		enableAllPlugins = true
+		return nil
+	}
+	if lower == "none" {
+		enableAllPlugins = false
 		return []string{}
 	}
 

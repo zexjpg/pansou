@@ -26,15 +26,24 @@ import (
 
 	// 以下是插件的空导入，用于触发各插件的init函数，实现自动注册
 	// 添加新插件时，只需在此处添加对应的导入语句即可
+	// 以下是插件的空导入，用于触发各插件的init函数，实现自动注册
+	// 全开模式：导入所有插件包（共 111 个），由环境变量 ENABLED_PLUGINS 控制实际启用哪些
 	_ "pansou/plugin/5266ys"
+	_ "pansou/plugin/ahhhhfs"
+	_ "pansou/plugin/aikanzy"
 	_ "pansou/plugin/aipan"
+	_ "pansou/plugin/alupan"
+	_ "pansou/plugin/ash"
+	_ "pansou/plugin/bixin"
 	_ "pansou/plugin/btbtlb"
 	_ "pansou/plugin/buerchen"
 	_ "pansou/plugin/cldi"
 	_ "pansou/plugin/clmao"
 	_ "pansou/plugin/clxiong"
 	_ "pansou/plugin/cyg"
+	_ "pansou/plugin/daishudj"
 	_ "pansou/plugin/diduan"
+	_ "pansou/plugin/discourse"
 	_ "pansou/plugin/djgou"
 	_ "pansou/plugin/duanjuw"
 	_ "pansou/plugin/duoduo"
@@ -42,48 +51,63 @@ import (
 	_ "pansou/plugin/dygang"
 	_ "pansou/plugin/dyyj"
 	_ "pansou/plugin/dyyjpro"
-
-	// _ "pansou/plugin/erxiao"
+	_ "pansou/plugin/erxiao"
 	_ "pansou/plugin/erxiaopan"
 	_ "pansou/plugin/feikuai"
 	_ "pansou/plugin/gaoqing888"
 	_ "pansou/plugin/gying"
+	_ "pansou/plugin/haisou"
 	_ "pansou/plugin/haitunsou"
 	_ "pansou/plugin/hdmoli"
+	_ "pansou/plugin/hdr4k"
 	_ "pansou/plugin/hjzhencai"
 	_ "pansou/plugin/huban"
 	_ "pansou/plugin/hunhepan"
 	_ "pansou/plugin/ikantv"
+	_ "pansou/plugin/javdb"
+	_ "pansou/plugin/jikepan"
 	_ "pansou/plugin/jsnoteclub"
-
-	//_ "pansou/plugin/jupansou"
+	_ "pansou/plugin/jupansou"
 	_ "pansou/plugin/jutoushe"
+	_ "pansou/plugin/kkmao"
 	_ "pansou/plugin/kkv"
 	_ "pansou/plugin/kpkuang"
 	_ "pansou/plugin/labi"
+	_ "pansou/plugin/leijing"
 	_ "pansou/plugin/leso"
 	_ "pansou/plugin/libvio"
 	_ "pansou/plugin/lingjisp"
 	_ "pansou/plugin/lou1"
 	_ "pansou/plugin/meitizy"
 	_ "pansou/plugin/melost"
+	_ "pansou/plugin/miaoso"
+	_ "pansou/plugin/mikuclub"
 	_ "pansou/plugin/miosou"
+	_ "pansou/plugin/mizixing"
 	_ "pansou/plugin/muou"
 	_ "pansou/plugin/nsgame"
 	_ "pansou/plugin/nyaa"
 	_ "pansou/plugin/ouge"
 	_ "pansou/plugin/pan365"
+	_ "pansou/plugin/pan666"
 	_ "pansou/plugin/panlian"
 	_ "pansou/plugin/pansearch"
+	_ "pansou/plugin/panta"
+	_ "pansou/plugin/panwiki"
+	_ "pansou/plugin/panyq"
+	_ "pansou/plugin/panzun"
+	_ "pansou/plugin/pianku"
+	_ "pansou/plugin/qingying"
 	_ "pansou/plugin/qiwei"
 	_ "pansou/plugin/qqpd"
 	_ "pansou/plugin/quark4k"
 	_ "pansou/plugin/quarkres"
 	_ "pansou/plugin/quarksoo"
 	_ "pansou/plugin/quarktv"
-
-	// _ "pansou/plugin/qupanshe"
+	_ "pansou/plugin/qupanshe"
+	_ "pansou/plugin/qupansou"
 	_ "pansou/plugin/rrbt"
+	_ "pansou/plugin/sdso"
 	_ "pansou/plugin/shandian"
 	_ "pansou/plugin/sopanya"
 	_ "pansou/plugin/sousou"
@@ -94,12 +118,21 @@ import (
 	_ "pansou/plugin/wanou"
 	_ "pansou/plugin/weibo"
 	_ "pansou/plugin/woniu"
+	_ "pansou/plugin/wuji"
 	_ "pansou/plugin/xb6v"
 	_ "pansou/plugin/xdpan"
+	_ "pansou/plugin/xdyh"
+	_ "pansou/plugin/xiaoji"
 	_ "pansou/plugin/xiaokupan"
 	_ "pansou/plugin/xiaoyu"
 	_ "pansou/plugin/xiaozhang"
+	_ "pansou/plugin/xinjuc"
+	_ "pansou/plugin/xuexizhinan"
+	_ "pansou/plugin/xys"
 	_ "pansou/plugin/yingso"
+	_ "pansou/plugin/yiove"
+	_ "pansou/plugin/ypfxw"
+	_ "pansou/plugin/yuhuage"
 	_ "pansou/plugin/yulinshufa"
 	_ "pansou/plugin/yunso"
 	_ "pansou/plugin/yunsou"
@@ -174,7 +207,12 @@ func startServer() {
 
 	// 注册全局插件（根据配置过滤）
 	if config.AppConfig.AsyncPluginEnabled {
-		pluginManager.RegisterGlobalPluginsWithFilter(config.AppConfig.EnabledPlugins)
+		if config.AppConfig.EnableAllPlugins {
+			// ENABLED_PLUGINS=all：注册全局注册表中的全部插件（自动包含源码新增的插件）
+			pluginManager.RegisterAllGlobalPlugins()
+		} else {
+			pluginManager.RegisterGlobalPluginsWithFilter(config.AppConfig.EnabledPlugins)
+		}
 	}
 
 	// 更新默认并发数（如果插件被禁用则使用0）
@@ -394,9 +432,6 @@ func printServiceInfo(port string, pluginManager *plugin.PluginManager) {
 	if config.AppConfig.AsyncPluginEnabled {
 		plugins := pluginManager.GetPlugins()
 		if len(plugins) > 0 {
-			// 根据新逻辑，只有指定了具体插件才会加载插件
-			fmt.Printf("已启用指定插件 (%d个):\n", len(plugins))
-
 			// 按优先级排序（优先级数字越小越靠前）
 			sort.Slice(plugins, func(i, j int) bool {
 				// 优先级相同时按名称排序
@@ -406,13 +441,19 @@ func printServiceInfo(port string, pluginManager *plugin.PluginManager) {
 				return plugins[i].Priority() < plugins[j].Priority()
 			})
 
+			if config.AppConfig.EnableAllPlugins {
+				fmt.Printf("已启用全部插件（默认或 ENABLED_PLUGINS=all，%d个）:\n", len(plugins))
+			} else {
+				fmt.Printf("已启用指定插件（%d个）:\n", len(plugins))
+			}
+
 			for _, p := range plugins {
 				fmt.Printf("  - %s (优先级: %d)\n", p.Name(), p.Priority())
 			}
 		} else {
 			// 区分不同的情况
 			if config.AppConfig.EnabledPlugins == nil {
-				fmt.Println("未设置插件列表 (ENABLED_PLUGINS)，未加载任何插件")
+				fmt.Println("未加载任何插件（ENABLED_PLUGINS=none 或显式空列表）")
 			} else if len(config.AppConfig.EnabledPlugins) > 0 {
 				fmt.Printf("未找到指定的插件: %s\n", strings.Join(config.AppConfig.EnabledPlugins, ", "))
 			} else {

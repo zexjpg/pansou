@@ -43,9 +43,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # 上游最新 Release（若有），否则取最新提交
-          rel=$(gh api "repos/$UPSTREAM/releases/latest" --jq '.tag_name' 2>/dev/null || true)
-          commit=$(gh api "repos/$UPSTREAM/commits?per_page=1" --jq '.[0].sha')
+          # 上游最新 Release：用“列表接口”而非 /releases/latest，
+          # 因为上游没有Release时 /latest 会返回 404，而列表接口返回 []（HTTP 200）。
+          rel=$(gh api "repos/$UPSTREAM/releases?per_page=1" --jq '.[0].tag_name // ""' 2>/dev/null) || rel=""
+          # 上游最新提交
+          commit=$(gh api "repos/$UPSTREAM/commits?per_page=1" --jq '.[0].sha' 2>/dev/null) || commit=""
+          if [ -z "$commit" ]; then
+            echo "::error::无法获取上游 $UPSTREAM 的最新提交" >&2
+            exit 1
+          fi
           if [ -n "$rel" ]; then
             version="$rel"
             ref="$rel"

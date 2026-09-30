@@ -1,0 +1,156 @@
+name: Build & Release (cross-platform)
+
+# 自动构建上游 fish2018/pansou 的跨平台可执行文件并发布为 Release。
+# - 触发：每日 UTC 18:00 定时检查上游更新 / 手动触发 / 本文件或构建脚本变更时。
+# - 逻辑：检测上游最新提交（或 Release）；若本仓库尚未发布该版本，则交叉编译
+#         Windows / Linux / macOS 的 amd64 与 arm64 共 6 个目标，并汇总发布。
+on:
+  schedule:
+    # 每天 UTC 18:00（北京时间次日 02:00）检查一次上游更新。
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force build & release even if already published'
+        type: boolean
+        default: false
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-release.yml'
+      - 'scripts/build.sh'
+
+permissions:
+  contents: write            # 创建 Release 并上传资产（GITHUB_TOKEN 自带，无需 PAT）
+
+env:
+  UPSTREAM: fish2018/pansou
+  GOTOOLCHAIN: go1.25.0      # bytedance/sonic v1.14.0 最高支持到 Go 1.25，必须锁版本
+  CGO_ENABLED: '0'           # 纯 Go 静态编译，免交叉编译器、无 libc 依赖
+
+jobs:
+  # 1) 检查上游是否有新提交 / 新 Release，决定是否构建
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.detect.outputs.ref }}
+      version: ${{ steps.detect.outputs.version }}
+      should_build: ${{ steps.detect.outputs.should_build }}
+    steps:
+      - name: Detect upstream update
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 上游最新 Release（若有），否则取最新提交
+          rel=$(gh api "repos/$UPSTREAM/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+          commit=$(gh api "repos/$UPSTREAM/commits?per_page=1" --jq '.[0].sha')
+          if [ -n "$rel" ]; then
+            version="$rel"
+            ref="$rel"
+          else
+            version="commit-${commit:0:7}"
+            ref="$commit"
+          fi
+          # 本仓库（fork）是否已发布过该版本
+          if gh release view "$version" >/dev/null 2>&1; then
+            should_build=false
+          else
+            should_build=true
+          fi
+          {
+            echo "ref=$ref"
+            echo "version=$version"
+            echo "should_build=$should_build"
+          } >> "$GITHUB_OUTPUT"
+          echo "detected ref=$ref version=$version should_build=$should_build"
+
+  # 2) 矩阵交叉编译 6 个目标
+  build:
+    needs: check
+    if: needs.check.outputs.should_build == 'true' || inputs.force == true
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+    steps:
+      - name: Checkout fork (to obtain build script)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Stash build script
+        run: cp scripts/build.sh /tmp/build.sh
+
+      - name: Fetch upstream source @ ${{ needs.check.outputs.ref }}
+        env:
+          REF: ${{ needs.check.outputs.ref }}
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/$UPSTREAM.git"
+          git fetch --depth 1 upstream "$REF"
+          git checkout FETCH_HEAD
+          mkdir -p scripts && cp /tmp/build.sh scripts/build.sh   # 还原我们的构建脚本
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          check-latest: true
+          cache: true
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.check.outputs.version }}
+          COMMIT: ${{ needs.check.outputs.ref }}
+        run: bash scripts/build.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pansou-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  # 3) 汇总资产并发布 Release
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: pansou-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum * > sha256.txt
+          cat sha256.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check.outputs.version }}
+          REF: ${{ needs.check.outputs.ref }}
+        run: |
+          set -euo pipefail
+          notes="Automated cross-platform build of upstream $UPSTREAM @ $REF."
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "$notes" \
+            --repo "$GITHUB_REPOSITORY" \
+            artifacts/*

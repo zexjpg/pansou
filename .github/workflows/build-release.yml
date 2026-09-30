@@ -126,6 +126,28 @@ jobs:
           ref: main
           fetch-depth: 1
 
+      - name: Refresh default channel list from upstream docker-compose
+        run: |
+          set -euo pipefail
+          # 从（已合并上游的）docker-compose.yml 重新生成内嵌频道清单，
+          # 让"默认全频道"自动跟随上游 CHANNELS 的变化。
+          line=$(grep -m1 -o 'CHANNELS=.*' docker-compose.yml || true)
+          if [ -z "$line" ]; then
+            echo "::warning::docker-compose.yml 未找到 CHANNELS，保留现有 config/default_channels.txt"
+            exit 0
+          fi
+          val="${line#CHANNELS=}"
+          printf '%s' "$val" | tr ',' '\n' \
+            | sed 's/\r$//; s/^[[:space:]]*//; s/[[:space:]]*$//' \
+            | grep -v '^$' | sort -u > config/default_channels.txt
+          n=$(wc -l < config/default_channels.txt)
+          if [ "$n" -lt 10 ]; then
+            echo "::warning::提取到的频道过少($n)，判定为异常，回滚清单"
+            git checkout -- config/default_channels.txt || true
+          else
+            echo "已刷新内嵌频道清单：$n 个"
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
